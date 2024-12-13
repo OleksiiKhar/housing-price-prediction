@@ -1,0 +1,149 @@
+---
+title: "Visualizations and Performance Metrics"
+output: html_document
+date: "2024-12-13"
+---
+
+# Project Overview
+
+This project involves building a predictive model for estimating the **Sold Price** of properties based on two characteristics: **Year Built** and **Total Square Footage**. I trained a **k-Nearest Neighbors (kNN)** model, evaluated its performance, and visualized its results.
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(randomForest)
+library(caret)
+library(tidyverse)
+
+
+FM_housing <- read_csv(
+  file = "https://raw.githubusercontent.com/gmtanner-cord/DATA470-2024/c39c51759761bff7abd5b42e5ab9ff35bf524515/fmhousing/FM_Housing_2018_2022_clean.csv"
+)      
+FM_housing <- FM_housing %>%
+  rename(
+    year_built = `Year Built`,
+    total_sqft = `Total SqFt.`,
+    sold_price = `Sold Price`
+  )
+
+set.seed(42) # This is for reproducibility, so that everyone gets the same answers.
+test_index <- createDataPartition(FM_housing$`sold_price`, p = 0.20, list = FALSE)
+test_set <- FM_housing[test_index,]
+train_set <- FM_housing[-test_index,]
+```
+
+## Data Preprocessing
+
+```{r echo = FALSE}
+# Center and scale 
+scaling_vars <- train_set %>%
+  select(`year_built`, `total_sqft`) %>%
+  preProcess(method = c("center", "scale"))
+
+train_scaled <- predict(scaling_vars, select(train_set, `year_built`, `total_sqft`)) %>%
+  as.data.frame() %>%
+  cbind(train_set %>%
+           select(`sold_price`))
+
+# Center and scale in the test set
+test_scaled <- predict(scaling_vars, select(test_set, `year_built`, `total_sqft`)) %>%
+  as.data.frame() %>%
+  cbind(test_set %>%
+           select(`sold_price`))
+
+```
+
+## Train the kNN Model
+
+```{r echo = FALSE}
+# Define cross-validation control
+control <- trainControl(method = "cv", number = 10)
+
+# Train kNN model with cross-validation
+model_knn_cv <- train(
+  `sold_price` ~ .,
+  data = train_scaled,
+  method = "knn",
+  tuneGrid = expand.grid(k = seq(1, 81, 4)), # Adjust `k` range as needed
+  trControl = control
+)
+
+# Print the model
+model_knn_cv
+
+```
+
+## Model Performance
+
+```{r echo = FALSE}
+# Evaluate model performance
+y_hat_knn_cv <- predict(model_knn_cv, newdata = test_scaled)
+postResample(y_hat_knn_cv, test_scaled$`sold_price`)
+
+```
+
+## Performance Metrics
+```{r echo = FALSE}
+# RMSE (Root Mean Squared Error)
+rmse <- sqrt(mean((y_hat_knn_cv - test_scaled$sold_price)^2))
+
+# R-squared
+rsq <- cor(y_hat_knn_cv, test_scaled$sold_price)^2
+
+
+
+
+
+```
+#### RMSE
+```{r echo = FALSE}
+rmse
+```
+#### RSQ
+
+```{r echo = FALSE}
+rsq
+```
+
+
+# Visualizations
+
+I generated two main plots to evaluate the performance of my model:
+
+Residuals Distribution: This plot shows the distribution of the residuals (the difference between predicted and actual sold prices).
+Actual vs Predicted Sold Price: This scatter plot compares the actual and predicted sold prices.
+
+## Residuals Distribution
+
+```{r echo = FALSE}
+# Generate residuals plot
+library(ggplot2)
+
+residuals <- y_hat_knn_cv - test_scaled$sold_price
+residual_plot <- ggplot(data = data.frame(residuals), aes(x = residuals)) +
+  geom_histogram(binwidth = 50, fill = "skyblue", color = "black") +
+  ggtitle("Residuals Distribution") +
+  xlab("Residuals") +
+  ylab("Frequency")
+
+residual_plot
+
+```
+
+## Actual vs Predicted Sold Price
+
+```{r echo = FALSE}
+# Generate actual vs predicted plot
+prediction_plot <- ggplot(data = data.frame(actual = test_scaled$sold_price, predicted = y_hat_knn_cv), aes(x = actual, y = predicted)) +
+  geom_point(color = "blue") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Actual vs Predicted Sold Price") +
+  xlab("Actual Sold Price") +
+  ylab("Predicted Sold Price")
+
+prediction_plot
+
+```
+
