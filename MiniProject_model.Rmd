@@ -1,0 +1,100 @@
+---
+title: "MiniProject"
+output: html_document
+date: "2024-12-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load necessary libraries
+library(randomForest)
+library(vetiver)
+library(caret)
+library(tidyverse)
+library(plumber)
+library(pins)
+library(workflows)
+
+# Load and clean the dataset
+FM_housing <- read_csv(
+  file = "https://raw.githubusercontent.com/gmtanner-cord/DATA470-2024/c39c51759761bff7abd5b42e5ab9ff35bf524515/fmhousing/FM_Housing_2018_2022_clean.csv",
+)      
+FM_housing <- FM_housing %>%
+  rename(
+    year_built = `Year Built`,
+    total_sqft = `Total SqFt.`,
+    sold_price = `Sold Price`
+  )
+
+set.seed(42) # This is for reproducibility, so that everyone gets the same answers.
+test_index <- createDataPartition(FM_housing$`sold_price`, p = 0.20, list = FALSE)
+test_set <- FM_housing[test_index,]
+train_set <- FM_housing[-test_index,]
+
+```
+
+
+
+
+
+
+
+```{r}
+# Center and scale 
+scaling_vars <- train_set %>%
+  select(`year_built`, `total_sqft`) %>%
+  preProcess(method = c("center", "scale"))
+
+train_scaled <- predict(scaling_vars, select(train_set, `year_built`, `total_sqft`)) %>%
+  as.data.frame() %>%
+  cbind(train_set %>%
+           select(`sold_price`))
+
+# Center and scale in the test set
+test_scaled <- predict(scaling_vars, select(test_set, `year_built`, `total_sqft`)) %>%
+  as.data.frame() %>%
+  cbind(test_set %>%
+           select(`sold_price`))
+
+# Define cross-validation control
+control <- trainControl(method = "cv", number = 10)
+
+# Train kNN model with cross-validation
+model_knn_cv <- train(
+  `sold_price` ~ .,
+  data = train_scaled,
+  method = "knn",
+  tuneGrid = expand.grid(k = seq(1, 81, 4)), # Adjust `k` range as needed
+  trControl = control
+)
+
+# Print the model
+model_knn_cv
+
+# Evaluate model performance
+y_hat_knn_cv <- predict(model_knn_cv, newdata = test_scaled)
+postResample(y_hat_knn_cv, test_scaled$`sold_price`)
+
+```
+```{r}
+
+vet_knn <- vetiver::vetiver_model(model_knn_cv, "KNN_Model", save_prototype = TRUE)
+
+
+model_board <- board_temp(versioned = TRUE)
+model_board %>% vetiver_pin_write(vet_knn)
+
+```
+```{r}
+pr() %>%
+  vetiver_api(vet_knn) %>%
+  pr_run(port = 8080)
+
+```
+
+
+
+
+
+
+
